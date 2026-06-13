@@ -129,8 +129,8 @@ function App() {
     if (actions <= 0) return;
     if (board[y][x] !== -1) return;
 
-    if (playerRole === 1 && y !== 7) return;
-    if (playerRole === 1 && y !== 0) return;
+    if (playerRole === 0 && y !== 7) return;
+    if (playerRole === 1 && y !== 1) return;
 
     setBoard((prevBoard) => {
       const newBoard = prevBoard.map((row) => [...row]);
@@ -150,6 +150,9 @@ function App() {
   function movePawn(x: number, y: number) {
     if (!selectedPawn) return;
     if (actions <= 0) return;
+
+    if (y == 0 && playerRole == 1) return;
+    if (y == 8 && playerRole == 0) return;
 
     const fromX = selectedPawn.x;
     const fromY = selectedPawn.y;
@@ -239,7 +242,7 @@ function App() {
       </div>
 
       {/* Game Table — Flipped via CSS rotation if player is Player 1 */}
-      <table 
+      <table
         className={`transition-transform duration-500 ${
           !gameStarted ? "opacity-30 pointer-events-none" : ""
         } ${isFlipped ? "rotate-180" : ""}`}
@@ -248,19 +251,17 @@ function App() {
           {board.map((row, y) => (
             <tr key={y}>
               {row.map((pawn, x) => (
-                <td 
-                  key={`${x}-${y}`} 
-                  className={` ${y == 0 || y== 6}transition-transform duration-500 ${isFlipped ? "rotate-180" : ""}`}
-                >
-                  <Cell
-                    x={x}
-                    y={y}
-                    pawn={pawn}
-                    selected={selectedPawn?.x === x && selectedPawn?.y === y}
-                    highlighted={highlighted.has(`${x},${y}`)}
-                    onCellClick={onCellClick}
-                  />
-                </td>
+                /* Removed duplicate <td> wrap to prevent layout nesting bugs */
+                <Cell
+                  key={`${x}-${y}`}
+                  x={x}
+                  y={y}
+                  pawn={pawn}
+                  selected={selectedPawn?.x === x && selectedPawn?.y === y}
+                  highlighted={highlighted.has(`${x},${y}`)}
+                  role={playerRole}
+                  onCellClick={onCellClick}
+                />
               ))}
             </tr>
           ))}
