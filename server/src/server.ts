@@ -2,8 +2,6 @@ import express from "express";
 import http from "http";
 import { Server, Socket } from "socket.io";
 
-// example comment
-
 const app = express();
 const server = http.createServer(app);
 
@@ -20,6 +18,9 @@ const io = new Server(server, {
 io.on("connection", (socket: Socket) => {
   console.log("user connected", socket.id);
 
+  // Attach a custom string tracking reference directly onto this specific connection
+  let userActiveRoom: string | null = null;
+
   socket.on("create_room", (roomId: string) => {  
     if (rooms[roomId]) {
       socket.emit("error", "Room already exists! Please choose a different name.");
@@ -30,6 +31,7 @@ io.on("connection", (socket: Socket) => {
       players: [socket.id],
     };
 
+    userActiveRoom = roomId; // Remember this room for this socket instance fallback
     socket.join(roomId);
     socket.emit("player_assigned", 0);
   });
@@ -43,6 +45,7 @@ io.on("connection", (socket: Socket) => {
     }
 
     room.players.push(socket.id);
+    userActiveRoom = roomId; // Remember this room for this socket instance fallback
     socket.join(roomId);
 
     socket.emit("player_assigned", 1);
@@ -57,11 +60,33 @@ io.on("connection", (socket: Socket) => {
     socket.to(roomId).emit("place", { at, value });
   });
 
-    socket.on("endTurn", ({ roomId, value }) => {
+  socket.on("endTurn", ({ roomId, value }) => {
     socket.to(roomId).emit("endTurn", { value });
+  });
+
+  socket.on("disconnecting", () => {
+    const activeRooms = Array.from(socket.rooms);
+    if (userActiveRoom && !activeRooms.includes(userActiveRoom)) {
+      activeRooms.push(userActiveRoom);
+    }
+
+    for (const roomId of activeRooms) {
+      if (rooms[roomId]) {
+        console.log(`Closing abandoned room framework sequence: ${roomId}`);
+
+        io.to(roomId).emit("error", "Your opponent left the game. Room closed!");
+
+        delete rooms[roomId];
+      }
+    }
+  });
+
+  socket.on("disconnect", () => {
+    console.log("user disconnected", socket.id);
   });
 });
 
-server.listen(3000, () => {
-  console.log("Server running on 3000");
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
