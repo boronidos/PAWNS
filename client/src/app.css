@@ -1,1 +1,14 @@
 @import "tailwindcss";
+
+@theme {
+  --color-bg: rgb(203, 185, 168);
+  --color-text: rgb(31, 39, 27);
+  --color-text2: rgb(50, 60, 50);
+  --color-card-bg: rgb(220, 199, 190);
+
+  /* Buttons */
+  --color-accent1: rgb(20, 92, 158);
+  --color-accent1-hover: rgb(15, 76, 145);
+  --color-accent2: rgb(193, 115, 56);
+  --color-accent2-hover: rgb(186, 98, 50);
+}
