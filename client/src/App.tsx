@@ -13,15 +13,23 @@ function App() {
   const [playing, setPlaying] = useState(false);
   const [actions, setActions] = useState(2);
   const [state, setState] = useState("placing");
-  const [selectedPawn, setSelectedPawn] = useState<{ x: number; y: number } | null>(null);
-  const [board, setBoard] = useState(() => Array.from({ length: 7 }, () => Array(7).fill(-1)));
+  const [selectedPawn, setSelectedPawn] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const [board, setBoard] = useState(() =>
+    Array.from({ length: 9 }, () => Array(7).fill(-1)),
+  );
+
+  const isFlipped = playerRole === 1;
+
+  //#region networking
 
   // Socket Event Listeners
   useEffect(() => {
     socket.on("player_assigned", (role: number) => {
       setPlayerRole(role);
-      // Player 0 (room creator) starts the game when match begins, Player 1 waits
-      setPlaying(role === 0); 
+      setPlaying(role === 0);
     });
 
     socket.on("start_game", () => {
@@ -35,7 +43,6 @@ function App() {
       setPlayerRole(null);
     });
 
-    // Handle incoming placements from opponent
     socket.on("place", ({ at, value }) => {
       setBoard((prev) => {
         const newBoard = prev.map((row) => [...row]);
@@ -44,7 +51,6 @@ function App() {
       });
     });
 
-    // Handle incoming moves from opponent
     socket.on("move", ({ from, to, value }) => {
       setBoard((prev) => {
         const newBoard = prev.map((row) => [...row]);
@@ -54,11 +60,10 @@ function App() {
       });
     });
 
-    // Handle incoming turn passes
     socket.on("endTurn", () => {
       setPlaying(true);
       setActions(2);
-      setState("placing"); // Reset state loop for new turn
+      setState("placing");
     });
 
     return () => {
@@ -84,10 +89,14 @@ function App() {
     socket.emit("join_room", roomInput);
   }
 
+  //#endregion
+
   const highlighted = new Set(
     selectedPawn
-      ? getAdjacentCells(selectedPawn.x, selectedPawn.y).map((c) => `${c.x},${c.y}`)
-      : []
+      ? getAdjacentCells(selectedPawn.x, selectedPawn.y).map(
+          (c) => `${c.x},${c.y}`,
+        )
+      : [],
   );
 
   function getAdjacentCells(x: number, y: number) {
@@ -101,15 +110,16 @@ function App() {
 
   // Game Logic Handlers
   function toggleTurn() {
-    if (!playing) return; // Can't end turn if it's not your turn
-    
+    if (!playing) return;
+
     setPlaying(false);
     setSelectedPawn(null);
     socket.emit("endTurn", { roomId: currentRoom, value: playerRole });
   }
 
   function onCellClick(x: number, y: number) {
-    if (!playing || !gameStarted) return; // Guard clause for network gameplay
+    if (!playing || !gameStarted) return;
+
     if (state === "placing") placePawn(x, y);
     else if (state === "selecting") selectPawn(x, y);
     else if (state === "moving") movePawn(x, y);
@@ -119,8 +129,7 @@ function App() {
     if (actions <= 0) return;
     if (board[y][x] !== -1) return;
 
-    // Enforce spawn zones: Player 0 spawns on bottom row (y=6), Player 1 spawns on top row (y=0)
-    if (playerRole === 0 && y !== 6) return;
+    if (playerRole === 1 && y !== 7) return;
     if (playerRole === 1 && y !== 0) return;
 
     setBoard((prevBoard) => {
@@ -130,9 +139,12 @@ function App() {
     });
 
     setActions((prev) => prev - 1);
-    
-    // Send to backend
-    socket.emit("place", { roomId: currentRoom, at: { x, y }, value: playerRole });
+
+    socket.emit("place", {
+      roomId: currentRoom,
+      at: { x, y },
+      value: playerRole,
+    });
   }
 
   function movePawn(x: number, y: number) {
@@ -143,7 +155,7 @@ function App() {
     const fromY = selectedPawn.y;
 
     if (Math.abs(y - fromY) + Math.abs(x - fromX) > 1) return;
-    if (board[y][x] !== -1) return; // Prevent moving onto occupied cells
+    if (board[y][x] == board[fromY][fromX]) return;
 
     setBoard((prev) => {
       const newBoard = prev.map((row) => [...row]);
@@ -157,47 +169,47 @@ function App() {
     setState("selecting");
     setActions((prev) => prev - 1);
 
-    // Send to backend
-    socket.emit("move", { 
-      roomId: currentRoom, 
-      from: { x: fromX, y: fromY }, 
-      to: { x, y }, 
-      value: playerRole 
+    socket.emit("move", {
+      roomId: currentRoom,
+      from: { x: fromX, y: fromY },
+      to: { x, y },
+      value: playerRole,
     });
   }
 
   function selectPawn(x: number, y: number) {
-    // Only allow selecting your own pawns
     if (board[y][x] !== playerRole) return;
 
     setSelectedPawn({ x, y });
     setState("moving");
   }
 
-  // Lobby
+  // Lobby View
   if (!currentRoom) {
     return (
-      <section className="bg-gray-800 w-screen h-screen flex flex-col items-center justify-center font-bold text-white">
+      <section className="bg-bg w-screen h-screen flex flex-col items-center justify-center font-bold text-text">
         <h1 className="text-4xl mb-8">PAWNS</h1>
-        <div className="bg-gray-700 p-8 rounded-2xl shadow-2xl flex flex-col gap-4 w-80">
-          <label className="text-sm tracking-wide text-gray-300">ROOM ID</label>
+        <div className="bg-card-bg p-8 rounded-2xl shadow-2xl flex flex-col gap-4 w-80">
+          <label className="text-sm tracking-wide text-lobby-text">
+            ROOM ID
+          </label>
           <input
             type="text"
             value={roomInput}
             onChange={(e) => setRoomInput(e.target.value)}
             placeholder="Enter room code..."
-            className="p-3 rounded-xl bg-gray-600 text-white outline-none border border-gray-500 focus:border-purple-500 transition-colors"
+            className="p-3 rounded-xl bg-bg text-text outline-none border border-input-border focus:border-text transition-colors"
           />
-          <div className="flex gap-2 mt-2">
+          <div className="flex gap-2 mt-2 text-white">
             <button
               onClick={handleCreateRoom}
-              className="flex-1 bg-purple-600 hover:bg-purple-700 p-3 rounded-xl transition-all active:scale-95 cursor-pointer"
+              className="flex-1 bg-accent1 hover:bg-accent1-hover p-3 rounded-xl transition-all active:scale-95 cursor-pointer"
             >
               Create
             </button>
             <button
               onClick={handleJoinRoom}
-              className="flex-1 bg-amber-500 hover:bg-amber-600 p-3 rounded-xl transition-all active:scale-95 cursor-pointer"
+              className="flex-1 bg-accent2 hover:bg-accent2-hover p-3 rounded-xl transition-all active:scale-95 cursor-pointer"
             >
               Join
             </button>
@@ -207,37 +219,48 @@ function App() {
     );
   }
 
-  // Game
+  // Game View
   return (
-    <section className="bg-gray-800 w-screen h-screen p-10 font-bold flex flex-col items-center justify-center relative">
-
+    <section className="bg-bg w-screen h-screen p-10 font-bold flex flex-col items-center justify-center relative">
       {/* Top Status Bar */}
       <div className="absolute top-6 flex flex-col items-center gap-1 text-white">
-        <p className="text-xl text-purple-400">Room: {currentRoom} (Player {playerRole})</p>
+        <p className="text-xl text-text2">
+          {/* Room: {currentRoom} | You: Player {playerRole} ({playerRole === 0 ? "White" : "Black"}) */}
+        </p>
         {!gameStarted ? (
-          <p className="text-amber-400 animate-pulse">Waiting for an opponent to join...</p>
+          <p className="text-accent1 animate-pulse">
+            Waiting for an opponent to join...
+          </p>
         ) : (
-          <p className="text-2xl">
+          <p className="text-2xl text-text2">
             {playing ? "Your Turn" : "Enemy Turn"} | Actions Left: {actions}
           </p>
         )}
       </div>
 
-      {/* Game Table */}
-      <table className={!gameStarted ? "opacity-30 pointer-events-none" : ""}>
+      {/* Game Table — Flipped via CSS rotation if player is Player 1 */}
+      <table 
+        className={`transition-transform duration-500 ${
+          !gameStarted ? "opacity-30 pointer-events-none" : ""
+        } ${isFlipped ? "rotate-180" : ""}`}
+      >
         <tbody>
           {board.map((row, y) => (
             <tr key={y}>
               {row.map((pawn, x) => (
-                <Cell
-                  key={`${x}-${y}`}
-                  x={x}
-                  y={y}
-                  pawn={pawn}
-                  selected={selectedPawn?.x === x && selectedPawn?.y === y}
-                  highlighted={highlighted.has(`${x},${y}`)}
-                  onCellClick={onCellClick}
-                />
+                <td 
+                  key={`${x}-${y}`} 
+                  className={` ${y == 0 || y== 6}transition-transform duration-500 ${isFlipped ? "rotate-180" : ""}`}
+                >
+                  <Cell
+                    x={x}
+                    y={y}
+                    pawn={pawn}
+                    selected={selectedPawn?.x === x && selectedPawn?.y === y}
+                    highlighted={highlighted.has(`${x},${y}`)}
+                    onCellClick={onCellClick}
+                  />
+                </td>
               ))}
             </tr>
           ))}
@@ -245,12 +268,16 @@ function App() {
       </table>
 
       {/* Action Buttons */}
-      <div className={`mt-8 flex gap-4 ${(!playing || !gameStarted) ? "opacity-50 pointer-events-none" : ""}`}>
+      <div
+        className={`mt-8 flex gap-4 ${!playing || !gameStarted ? "opacity-50 pointer-events-none" : ""}`}
+      >
         <button
           type="button"
           onClick={() => setState("placing")}
           className={`p-4 rounded-xl font-bold transition-all w-36 shadow-lg cursor-pointer ${
-            state === "placing" ? "bg-purple-600 text-white" : "bg-gray-400 text-gray-800"
+            state === "placing"
+              ? "bg-accent1 text-white"
+              : "bg-gray-400 text-gray-800"
           }`}
         >
           Place mode
@@ -260,7 +287,9 @@ function App() {
           type="button"
           onClick={() => setState("selecting")}
           className={`p-4 rounded-xl font-bold transition-all w-36 shadow-lg cursor-pointer ${
-            state === "selecting" || state === "moving" ? "bg-purple-600 text-white" : "bg-gray-400 text-gray-800"
+            state === "selecting" || state === "moving"
+              ? "bg-accent1 text-white"
+              : "bg-gray-400 text-gray-800"
           }`}
         >
           Move mode
@@ -269,7 +298,7 @@ function App() {
         <button
           type="button"
           onClick={toggleTurn}
-          className="p-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold transition-all w-36 shadow-lg cursor-pointer active:scale-95"
+          className="p-4 rounded-xl bg-accent2 hover:bg-accent2-hover text-white font-bold transition-all w-36 shadow-lg cursor-pointer active:scale-95"
         >
           End Turn
         </button>
