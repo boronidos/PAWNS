@@ -2,6 +2,8 @@ import express from "express";
 import http from "http";
 import { Server, Socket } from "socket.io";
 
+// example comment
+
 const app = express();
 const server = http.createServer(app);
 
