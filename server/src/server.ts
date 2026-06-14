@@ -21,10 +21,13 @@ io.on("connection", (socket: Socket) => {
   // Attach a custom string tracking reference directly onto this specific connection
   let userActiveRoom: string | null = null;
 
-  socket.on("create_room", (roomId: string) => {  
+  socket.on("create_room", (roomId: string) => {
     if (rooms[roomId]) {
-      socket.emit("error", "Room already exists! Please choose a different name.");
-      return; 
+      socket.emit(
+        "error",
+        "Room already exists! Please choose a different name.",
+      );
+      return;
     }
 
     rooms[roomId] = {
@@ -52,16 +55,25 @@ io.on("connection", (socket: Socket) => {
     io.to(roomId).emit("start_game");
   });
 
-  socket.on("move", ({ roomId, from, to, value }) => {
-    socket.to(roomId).emit("move", { from, to, value });
+  socket.on("move", ({ roomId, from, to, value, newPoints }) => {
+    socket.to(roomId).emit("move", { from, to, value, newPoints });
   });
 
-  socket.on("place", ({ roomId, at, value }) => {
-    socket.to(roomId).emit("place", { at, value });
+  // 1. Update your server placement relay
+  socket.on("place", ({ roomId, at, value, pointsLeft }) => {
+    // Relays the placement and the placer's updated score directly to the opponent
+    socket.to(roomId).emit("place", { at, value, pointsLeft });
   });
 
-  socket.on("endTurn", ({ roomId, value }) => {
-    socket.to(roomId).emit("endTurn", { value });
+  // 2. Update your server turn swap event handler
+  socket.on("endTurn", ({ roomId, value, enemyPointsTally }) => {
+    // Tells the opponent it's their turn, passing their local point configuration calculations
+    socket.to(roomId).emit("endTurn", { currentPoints: enemyPointsTally });
+
+    // Simultaneously alerts the opponent to update their interface tracking values
+    socket
+      .to(roomId)
+      .emit("enemy_turn_started", { enemyPointsTally: enemyPointsTally });
   });
 
   socket.on("disconnecting", () => {
@@ -74,7 +86,10 @@ io.on("connection", (socket: Socket) => {
       if (rooms[roomId]) {
         console.log(`Closing abandoned room framework sequence: ${roomId}`);
 
-        io.to(roomId).emit("error", "Your opponent left the game. Room closed!");
+        io.to(roomId).emit(
+          "error",
+          "Your opponent left the game. Room closed!",
+        );
 
         delete rooms[roomId];
       }

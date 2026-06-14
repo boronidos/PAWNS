@@ -12,6 +12,11 @@ function App() {
   // Gameplay State
   const [playing, setPlaying] = useState(false);
   const [actions, setActions] = useState(2);
+
+  // Points Systems
+  const [playerPoints, setPlayerPoints] = useState(5);
+  const [enemyPoints, setEnemyPoints] = useState(5);
+
   const [state, setState] = useState("placing");
   const [selectedPawn, setSelectedPawn] = useState<{
     x: number;
@@ -25,7 +30,6 @@ function App() {
 
   //#region networking
 
-  // Socket Event Listeners
   useEffect(() => {
     socket.on("player_assigned", (role: number) => {
       setPlayerRole(role);
@@ -34,7 +38,6 @@ function App() {
 
     socket.on("start_game", () => {
       setGameStarted(true);
-      alert("Game started! Player 0's turn.");
     });
 
     socket.on("error", (msg: string) => {
@@ -43,15 +46,25 @@ function App() {
       setPlayerRole(null);
     });
 
-    socket.on("place", ({ at, value }) => {
+    // Receive opponent's placements and update their points tally
+    socket.on("place", ({ at, value, pointsLeft }) => {
       setBoard((prev) => {
         const newBoard = prev.map((row) => [...row]);
         newBoard[at.y][at.x] = value;
         return newBoard;
       });
+      if (pointsLeft !== undefined) {
+        setEnemyPoints(pointsLeft);
+      }
     });
 
-    socket.on("move", ({ from, to, value }) => {
+    // FIXED: Enemy moved, so update enemy points, NOT player points!
+    socket.on("move", ({ from, to, value, pointsLeft }) => {
+      if (pointsLeft !== undefined) {
+        setEnemyPoints(pointsLeft);
+      }
+      console.log(pointsLeft);
+
       setBoard((prev) => {
         const newBoard = prev.map((row) => [...row]);
         newBoard[from.y][from.x] = -1;
@@ -60,10 +73,19 @@ function App() {
       });
     });
 
+    // FIXED: It is now your turn! Cleanly add your +1 turn income right here safely
     socket.on("endTurn", () => {
       setPlaying(true);
       setActions(2);
       setState("placing");
+
+      // Gain exactly 1 point at the absolute start of your active turn
+      setPlayerPoints((prev) => prev + 1);
+    });
+
+    // Listen for turn-swap notifications to track enemy point gains instantly
+    socket.on("enemy_turn_started", ({ enemyPointsTally }) => {
+      setEnemyPoints(enemyPointsTally);
     });
 
     return () => {
@@ -73,6 +95,7 @@ function App() {
       socket.off("place");
       socket.off("move");
       socket.off("endTurn");
+      socket.off("enemy_turn_started");
     };
   }, []);
 
@@ -114,7 +137,17 @@ function App() {
 
     setPlaying(false);
     setSelectedPawn(null);
-    socket.emit("endTurn", { roomId: currentRoom, value: playerRole });
+
+    // Predict opponent's +1 startup point instantly on your screen
+    const enemyNextPoints = enemyPoints + 1;
+    setEnemyPoints(enemyNextPoints);
+
+    // Send your current points to the server so your opponent saves it as enemyPointsTally
+    socket.emit("endTurn", {
+      roomId: currentRoom,
+      value: playerRole,
+      enemyPointsTally: playerPoints,
+    });
   }
 
   function onCellClick(x: number, y: number) {
@@ -128,9 +161,13 @@ function App() {
   function placePawn(x: number, y: number) {
     if (actions <= 0) return;
     if (board[y][x] !== -1) return;
+    if (playerPoints < 3) return;
 
     if (playerRole === 0 && y !== 7) return;
     if (playerRole === 1 && y !== 1) return;
+
+    const updatedPoints = playerPoints - 3;
+    setPlayerPoints(updatedPoints);
 
     setBoard((prevBoard) => {
       const newBoard = prevBoard.map((row) => [...row]);
@@ -144,6 +181,7 @@ function App() {
       roomId: currentRoom,
       at: { x, y },
       value: playerRole,
+      pointsLeft: updatedPoints,
     });
   }
 
@@ -159,6 +197,13 @@ function App() {
 
     if (Math.abs(y - fromY) + Math.abs(x - fromX) > 1) return;
     if (board[y][x] == board[fromY][fromX]) return;
+
+    var updatedPoints: number = playerPoints;
+    // Capturing an opponent's piece yields +2 points
+    if (board[y][x] !== -1 && board[y][x] !== playerRole) {
+      updatedPoints = playerPoints + 2;
+      setPlayerPoints(updatedPoints);
+    }
 
     setBoard((prev) => {
       const newBoard = prev.map((row) => [...row]);
@@ -177,6 +222,7 @@ function App() {
       from: { x: fromX, y: fromY },
       to: { x, y },
       value: playerRole,
+      newPoints: updatedPoints, // Relays YOUR updated points to the enemy
     });
   }
 
@@ -225,11 +271,7 @@ function App() {
   // Game View
   return (
     <section className="bg-bg w-screen h-screen p-10 font-bold flex flex-col items-center justify-center relative">
-      {/* Top Status Bar */}
       <div className="absolute top-6 flex flex-col items-center gap-1 text-white">
-        <p className="text-xl text-text2">
-          {/* Room: {currentRoom} | You: Player {playerRole} ({playerRole === 0 ? "White" : "Black"}) */}
-        </p>
         {!gameStarted ? (
           <p className="text-accent1 animate-pulse">
             Waiting for an opponent to join...
@@ -241,61 +283,58 @@ function App() {
         )}
       </div>
 
-      {/* Game Table — Flipped via CSS rotation if player is Player 1 */}
-      <table
-        className={`transition-transform duration-500 ${
-          !gameStarted ? "opacity-30 pointer-events-none" : ""
-        } ${isFlipped ? "rotate-180" : ""}`}
-      >
-        <tbody>
-          {board.map((row, y) => (
-            <tr key={y}>
-              {row.map((pawn, x) => (
-                /* Removed duplicate <td> wrap to prevent layout nesting bugs */
-                <Cell
-                  key={`${x}-${y}`}
-                  x={x}
-                  y={y}
-                  pawn={pawn}
-                  selected={selectedPawn?.x === x && selectedPawn?.y === y}
-                  highlighted={highlighted.has(`${x},${y}`)}
-                  role={playerRole}
-                  onCellClick={onCellClick}
-                />
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="flex items-center gap-4">
+        <p className="flex justify-center flex-col text-right w-32 p-4 align-middle h-30 text-text">
+          Your Points:{" "}
+          <span className="text-2xl text-accent1">{playerPoints}</span>
+        </p>
 
-      {/* Action Buttons */}
+        <table
+          className={`transition-transform duration-500 ${!gameStarted ? "opacity-30 pointer-events-none" : ""} ${isFlipped ? "rotate-180" : ""}`}
+        >
+          <tbody>
+            {board.map((row, y) => (
+              <tr key={y}>
+                {row.map((pawn, x) => (
+                  <Cell
+                    key={`${x}-${y}`}
+                    x={x}
+                    y={y}
+                    pawn={pawn}
+                    selected={selectedPawn?.x === x && selectedPawn?.y === y}
+                    highlighted={highlighted.has(`${x},${y}`)}
+                    role={playerRole}
+                    onCellClick={onCellClick}
+                  />
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <p className="flex justify-center flex-col text-left w-32 p-4 align-middle h-30 text-text">
+          Enemy Points:{" "}
+          <span className="text-2xl text-accent2">{enemyPoints}</span>
+        </p>
+      </div>
+
       <div
         className={`mt-8 flex gap-4 ${!playing || !gameStarted ? "opacity-50 pointer-events-none" : ""}`}
       >
         <button
           type="button"
           onClick={() => setState("placing")}
-          className={`p-4 rounded-xl font-bold transition-all w-36 shadow-lg cursor-pointer ${
-            state === "placing"
-              ? "bg-accent1 text-white"
-              : "bg-gray-400 text-gray-800"
-          }`}
+          className={`p-4 rounded-xl font-bold transition-all w-36 shadow-lg cursor-pointer ${state === "placing" ? "bg-accent1 text-white" : "bg-gray-400 text-gray-800"}`}
         >
           Place mode
         </button>
-
         <button
           type="button"
           onClick={() => setState("selecting")}
-          className={`p-4 rounded-xl font-bold transition-all w-36 shadow-lg cursor-pointer ${
-            state === "selecting" || state === "moving"
-              ? "bg-accent1 text-white"
-              : "bg-gray-400 text-gray-800"
-          }`}
+          className={`p-4 rounded-xl font-bold transition-all w-36 shadow-lg cursor-pointer ${state === "selecting" || state === "moving" ? "bg-accent1 text-white" : "bg-gray-400 text-gray-800"}`}
         >
           Move mode
         </button>
-
         <button
           type="button"
           onClick={toggleTurn}
